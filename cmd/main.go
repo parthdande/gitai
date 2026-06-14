@@ -15,6 +15,14 @@ import (
 func main() {  
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
 	commitFlag := flag.Bool("commit", false, "Generate a commit message and automatically commit all changes")
+	
+	flag.Usage = func() {
+		fmt.Println("GitAI: AI-Powered Git Reviewer & Commit Generator")
+		fmt.Println("\nUsage:")
+		fmt.Println("  gitai [flags]")
+		fmt.Println("\nFlags:")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 
 	viper.SetConfigName("gitai")
