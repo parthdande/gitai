@@ -99,20 +99,8 @@ func main() {
 		return
 	}
 
-	// Default custom prompt mode
-	prompt := "How many oceans are there in the world?"
-	if len(flag.Args()) > 0 {
-		prompt = flag.Args()[0]
-	}
-
-	fmt.Printf("Testing Gemini API call with prompt: %q\n", prompt)
-	response, err := gemini.GeminiAPI(prompt, "Be clear and concise.")
-	if err != nil {
-		fmt.Printf("Error during Gemini API call: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("\n--- Gemini Response ---")
-	fmt.Println(response)
-	fmt.Println("-----------------------")
+	// If no valid flag is passed, show usage instructions
+	fmt.Println("GitAI: AI-Powered Git Reviewer & Commit Generator")
+	fmt.Println("Usage:")
+	flag.PrintDefaults()
 }

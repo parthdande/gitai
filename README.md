@@ -62,9 +62,3 @@ Generates a commit message and automatically executes `git commit -a -m` to stag
 ```bash
 gitai -commit
 ```
-
-### 3. Send a Custom Prompt to Gemini
-To query Gemini directly through the CLI:
-```bash
-gitai "Explain quantum computing in one sentence."
-```
