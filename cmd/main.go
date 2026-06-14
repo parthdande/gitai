@@ -19,7 +19,7 @@ func main() {
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall gitai from the system")
 
 	flag.Usage = func() {
-		fmt.Println("GitAI: AI-Powered Git Reviewer & Commit Generator")
+		fmt.Println("gitai — AI-assisted git commits and messages")
 		fmt.Println("\nUsage:")
 		fmt.Println("  gitai [flags]")
 		fmt.Println("\nFlags:")

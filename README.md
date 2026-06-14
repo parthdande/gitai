@@ -1,6 +1,6 @@
-# GitAI: AI-Powered Git Reviewer & Commit Generator
+# gitai
 
-GitAI is an AI-powered command-line tool designed to review code modifications in your Git repository and automatically generate structured, logical git commit messages using the Gemini API.
+AI-assisted git commits and messages. Analyzes your git diff and generates structured conventional commit messages using the Gemini API. Can also auto-commit directly.
 
 ---
 
