@@ -26,10 +26,10 @@ func main() {
 	}
 	flag.Parse()
 
-	// Self-update: just re-run the install script
+	// Self-update: just re-run the install script (cache-busted URL)
 	if *updateFlag {
 		fmt.Println("Updating GitAI to the latest version...")
-		cmd := exec.Command("bash", "-c", "curl -sSL https://raw.githubusercontent.com/parthdande/gitai/main/install.sh | bash")
+		cmd := exec.Command("bash", "-c", "curl -sSL \"https://raw.githubusercontent.com/parthdande/gitai/main/install.sh?v=$(date +%s)\" | bash")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
