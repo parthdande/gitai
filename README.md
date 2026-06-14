@@ -62,3 +62,16 @@ Generates a commit message and automatically executes `git commit -a -m` to stag
 ```bash
 gitai -commit
 ```
+
+### 3. Update to Latest Version
+Pulls the latest code from GitHub, recompiles, and replaces the global binary:
+```bash
+gitai -update
+```
+
+### 4. Uninstall
+Removes the `gitai` binary from `/usr/local/bin`:
+```bash
+gitai -uninstall
+```
+

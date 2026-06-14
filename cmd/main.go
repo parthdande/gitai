@@ -16,6 +16,7 @@ func main() {
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
 	commitFlag := flag.Bool("commit", false, "Generate a commit message and automatically commit all changes")
 	updateFlag := flag.Bool("update", false, "Update gitai to the latest version")
+	uninstallFlag := flag.Bool("uninstall", false, "Uninstall gitai from the system")
 
 	flag.Usage = func() {
 		fmt.Println("GitAI: AI-Powered Git Reviewer & Commit Generator")
@@ -25,6 +26,20 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	// Uninstall: remove the binary from /usr/local/bin
+	if *uninstallFlag {
+		fmt.Println("Uninstalling GitAI...")
+		cmd := exec.Command("sudo", "rm", "-f", "/usr/local/bin/gitai")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Uninstall failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("GitAI uninstalled successfully!")
+		return
+	}
 
 	// Self-update: just re-run the install script (cache-busted URL)
 	if *updateFlag {
