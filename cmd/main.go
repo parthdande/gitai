@@ -15,6 +15,7 @@ const commitSystemPrompt = "You are an expert software engineer. Generate a stru
 func main() {
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
 	commitFlag := flag.Bool("commit", false, "Generate a commit message and automatically commit all changes")
+	updateFlag := flag.Bool("update", false, "Update gitai to the latest version")
 
 	flag.Usage = func() {
 		fmt.Println("GitAI: AI-Powered Git Reviewer & Commit Generator")
@@ -24,6 +25,19 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	// Self-update: just re-run the install script
+	if *updateFlag {
+		fmt.Println("Updating GitAI to the latest version...")
+		cmd := exec.Command("bash", "-c", "curl -sSL https://raw.githubusercontent.com/parthdande/gitai/main/install.sh | bash")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Update failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Load config from file if it exists, otherwise fall back to environment variable
 	viper.SetConfigName("gitai")
