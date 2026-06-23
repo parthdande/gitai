@@ -1,27 +1,36 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/parthdande/gitai/client"
+	"github.com/parthdande/gitai/commands"
 	"github.com/spf13/viper"
 )
 
-const commitSystemPrompt = "You are an expert software engineer. Generate a structured conventional commit message based on the provided git diff. It must start with a short header line (conventional commit style) summarizing the overall change, followed by a blank line, then a brief paragraph describing the purpose of the changes, focusing on the impact and user-facing behavior, followed by another blank line, and a bulleted list detailing what the changes accomplished (focusing on logical and functional changes rather than listing file names). Do not include markdown formatting (like ```), just return the raw text."
+const (
+	maxCommitMsgLen = 7200 // Git's soft limit for commit message size
+	gitTimeout      = 30 * time.Second
+)
 
 func main() {
+	// ── Flags ──────────────────────────────────────────────
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
 	commitFlag := flag.Bool("commit", false, "Generate a commit message and automatically commit all changes")
+	reviewFlag := flag.Bool("review", false, "Review git diff for security, quality, and best practices")
 	updateFlag := flag.Bool("update", false, "Update gitai to the latest version")
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall gitai from the system")
 
 	flag.Usage = func() {
-		fmt.Println("gitai — AI-assisted git commits and messages")
+		fmt.Println("gitai — AI-assisted git commits, messages, and code reviews")
 		fmt.Println("\nUsage:")
 		fmt.Println("  gitai [flags]")
 		fmt.Println("\nFlags:")
@@ -29,123 +38,177 @@ func main() {
 	}
 	flag.Parse()
 
-	// Uninstall: remove the binary from /usr/local/bin
+	// ── Special commands (no config needed) ────────────────
 	if *uninstallFlag {
-		fmt.Println("Uninstalling GitAI...")
-		cmd := exec.Command("sudo", "rm", "-f", "/usr/local/bin/gitai")
+		uninstall()
+		return
+	}
+	if *updateFlag {
+		// TODO: implement self-update via GitHub releases or git pull + rebuild
+		fmt.Println("Updating GitAI...")
+		fmt.Println("Run: git pull && go build -o gitai cmd/main.go && sudo mv gitai /usr/local/bin/")
+		return
+	}
+
+	// ── Load config ────────────────────────────────────────
+	v := viper.New() // isolated instance — no global side effects
+	cli, err := loadClient(v)
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		os.Exit(1)
+	}
+
+	// ── Pick handler based on flag ─────────────────────────
+	var handler commands.Handler
+
+	switch {
+	case *commitMsgFlag, *commitFlag:
+		handler = &commands.Commit{}
+	case *reviewFlag:
+		handler = &commands.Review{}
+	default:
+		flag.Usage()
+		return
+	}
+
+	// ── Run the handler ────────────────────────────────────
+	result, err := runHandler(cli, handler)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// ── Output ─────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println("───────────────────────────────────────")
+	fmt.Println(result)
+	fmt.Println("───────────────────────────────────────")
+
+	// Auto-commit if -commit was used
+	if *commitFlag {
+		sanitized := sanitizeForGit(result)
+		fmt.Println("\nCommitting changes...")
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "git", "commit", "-a", "-m", sanitized)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			fmt.Printf("Uninstall failed: %v\n", err)
+			fmt.Printf("Failed to commit: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("GitAI uninstalled successfully!")
-		return
+		fmt.Println("Successfully committed!")
 	}
+}
 
-	// Self-update
-	if *updateFlag {
-		fmt.Println("Updating GitAI...")
-		fmt.Println("Please re-run the installation script to update.")
-		return
+// sanitizeForGit strips control characters and truncates AI output for safe use in git commit messages.
+func sanitizeForGit(s string) string {
+	// Remove control chars except newline and carriage return
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 0x20 && r <= 0x7E) || r == '\n' || r == '\r' {
+			b.WriteRune(r)
+		}
 	}
+	result := strings.TrimSpace(b.String())
+	if len(result) > maxCommitMsgLen {
+		result = result[:maxCommitMsgLen]
+	}
+	return result
+}
 
-	// Load config from ~/.gitai/gitai.json if it exists, otherwise fall back to environment variables
+// loadClient reads config from ~/.gitai/gitai.json and environment variables.
+func loadClient(v *viper.Viper) (*client.Client, error) {
 	currentUser, err := user.Current()
 	if err != nil {
-		fmt.Printf("Error getting current user: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("could not get current user: %w", err)
 	}
+
 	configDir := filepath.Join(currentUser.HomeDir, ".gitai")
 	configFile := filepath.Join(configDir, "gitai.json")
 
-	viper.SetConfigName("gitai")
-	viper.SetConfigType("json")
-	viper.AddConfigPath(configDir)
-	_ = viper.ReadInConfig() // ignore error — config file is optional
+	v.SetConfigName("gitai")
+	v.SetConfigType("json")
+	v.AddConfigPath(configDir)
+	_ = v.ReadInConfig() // config file is optional
 
-	// API Base: env var overrides config file
-	apiBase := viper.GetString("api_base")
+	// API Base
+	apiBase := v.GetString("api_base")
 	if envBase := os.Getenv("GEMINI_API_BASE"); envBase != "" {
 		apiBase = envBase
 	}
 	if apiBase == "" {
-		apiBase = os.Getenv("API_BASE") // generic fallback
+		apiBase = os.Getenv("API_BASE")
 	}
 
-	// API Key: env var overrides config file
-	apiKey := viper.GetString("api_key")
+	// API Key
+	apiKey := v.GetString("api_key")
 	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
 		apiKey = envKey
 	}
 	if apiKey == "" {
-		apiKey = os.Getenv("API_KEY") // generic fallback
+		apiKey = os.Getenv("API_KEY")
 	}
 
-	// Model: env var overrides config file
-	model := viper.GetString("model")
+	// Model
+	model := v.GetString("model")
 	if envModel := os.Getenv("MODEL"); envModel != "" {
 		model = envModel
 	}
 
 	if apiBase == "" {
-		fmt.Printf("ERROR: No API base URL found. Set the API_BASE environment variable, or add api_base to %s\n", configFile)
-		os.Exit(1)
+		return nil, fmt.Errorf("no API base URL found. Set the API_BASE environment variable, or add api_base to %s", configFile)
 	}
-
 	if model == "" {
-		fmt.Printf("ERROR: No model found. Set the MODEL environment variable, or add model to %s\n", configFile)
-		os.Exit(1)
+		return nil, fmt.Errorf("no model found. Set the MODEL environment variable, or add model to %s", configFile)
 	}
 
-	c := client.Client{
+	return &client.Client{
 		APIBase: apiBase,
 		APIKey:  apiKey,
 		Model:   model,
+	}, nil
+}
+
+// runHandler fetches the git diff and runs the selected handler.
+func runHandler(cli *client.Client, h commands.Handler) (string, error) {
+	fmt.Printf("Running '%s'...\n", h.Name())
+
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "diff", "HEAD")
+	diffBytes, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("could not fetch git diff: %w", err)
 	}
 
-	if *commitMsgFlag || *commitFlag {
-		fmt.Println("Fetching git diff...")
-		diffBytes, err := exec.Command("git", "diff", "HEAD").Output()
-		if err != nil {
-			fmt.Printf("Error fetching git diff: %v\n", err)
-			os.Exit(1)
-		}
-
-		diff := string(diffBytes)
-		if diff == "" {
-			fmt.Println("No changes detected. Your working tree is clean.")
-			return
-		}
-
-		fmt.Println("Generating commit message...")
-		prompt := fmt.Sprintf("Analyze this git diff and write a commit message:\n\n%s", diff)
-		commitMessage, err := c.Generate(prompt, commitSystemPrompt)
-		if err != nil {
-			fmt.Printf("Error generating commit message: %v\n", err)
-			os.Exit(1)
-		}
-
-		if *commitMsgFlag {
-			fmt.Println("\nSuggested Commit Message:")
-			fmt.Println("-------------------------------------------")
-			fmt.Println(commitMessage)
-			fmt.Println("-------------------------------------------")
-		}
-
-		if *commitFlag {
-			fmt.Println("Committing changes...")
-			commitCmd := exec.Command("git", "commit", "-a", "-m", commitMessage)
-			commitCmd.Stdout = os.Stdout
-			commitCmd.Stderr = os.Stderr
-			if err := commitCmd.Run(); err != nil {
-				fmt.Printf("Failed to commit: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println("Successfully committed!")
-		}
-		return
+	diff := string(diffBytes)
+	if diff == "" {
+		return "", fmt.Errorf("no changes detected — working tree is clean")
 	}
 
-	flag.Usage()
+	return h.Run(cli, diff)
+}
+
+func uninstall() {
+	// Resolve the actual binary path dynamically instead of hardcoding /usr/local/bin
+	execPath, err := os.Executable()
+	if err != nil {
+		fmt.Printf("Could not determine binary path: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check if running as root
+	if os.Geteuid() != 0 {
+		fmt.Printf("Cannot uninstall: not running as root.\nRun: sudo %s -uninstall\n", execPath)
+		os.Exit(1)
+	}
+
+	fmt.Println("Uninstalling GitAI...")
+	if err := os.Remove(execPath); err != nil {
+		fmt.Printf("Uninstall failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("GitAI uninstalled successfully!")
 }
