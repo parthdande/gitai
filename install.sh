@@ -19,7 +19,7 @@ fi
 TEMP_BUILD_DIR=$(mktemp -d)
 
 # Clone the repository to the temp directory silently
-git clone -q --depth 1 https://github.com/parthdande/gitai.git "$TEMP_BUILD_DIR" 2>/dev/null
+git clone -q --depth 1 https://github.com/parth-nformis/gitai.git "$TEMP_BUILD_DIR" 2>/dev/null
 
 # Build the binary inside the temp directory
 (
