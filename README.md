@@ -1,16 +1,16 @@
 # gitai
 
-AI-assisted git commits and messages. Analyzes your git diff and generates structured conventional commit messages using the Gemini API. Can also auto-commit directly.
+AI-assisted git commits and messages. Analyzes your git diff and generates structured conventional commit messages using **any OpenAI-compatible API** (vLLM, Ollama, OpenAI, LiteLLM, etc.). Can also auto-commit directly.
 
 ---
 
 ## Installation
 
 ### Automated Global Installation (Linux & macOS)
-You can install GitAI globally to `/usr/local/bin` using a single command:
+Run the install script to compile and place the binary in `/usr/local/bin`:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/parthdande/gitai/main/install.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/parthdande/gitai/main/install.sh)
 ```
 
 *Note: The script compiles the tool from source and moves the binary to `/usr/local/bin` (this step will prompt for sudo privileges to write to the global directory).*
@@ -28,20 +28,61 @@ mv gitai /usr/local/bin/
 
 ## Configuration
 
-GitAI supports authentication and configuration in two ways:
+GitAI works with **any OpenAI-compatible API endpoint**. This includes vLLM, Ollama, OpenAI, LiteLLM, and more.
 
-### 1. Environment Variable (Recommended)
-Set the `GEMINI_API_KEY` variable in your terminal environment (e.g., in your `~/.bashrc` or `~/.zshrc`):
+### Environment Variables (Recommended)
+
 ```bash
-export GEMINI_API_KEY="your_gemini_api_key_here"
+# Required: Base URL of your API server
+export API_BASE="http://localhost:8000/v1"
+
+# Optional: API key (not needed for local vLLM/Ollama)
+export API_KEY="your-key-here"
+
+# Optional: Model name (default: Qwen/Qwen3-32B)
+export MODEL="Qwen/Qwen3-32B"
 ```
 
-### 2. Config File
-Alternatively, you can create a local configuration file in `./config/gitai.json`:
+### Config File (Auto-Created)
+
+The installation script automatically creates `~/.gitai/gitai.json` in your home directory:
+
+**Path:** `~/.gitai/gitai.json`
+
 ```json
 {
-  "api_key": "your_gemini_api_key_here",
-  "model": "gemini-3.1-flash-lite"
+  "api_base": "http://localhost:8000/v1",
+  "api_key": "",
+  "model": "Qwen/Qwen3-32B"
+}
+```
+
+### Example Configurations
+
+**vLLM (self-hosted):**
+```json
+{
+  "api_base": "http://localhost:8000/v1",
+  "api_key": "",
+  "model": "meta-llama/Llama-3.3-70B-Instruct"
+}
+```
+
+**Ollama:**
+```json
+{
+  "api_base": "http://localhost:11434/v1",
+  "api_key": "",
+  "model": "qwen3:32b"
+}
+```
+
+**OpenAI:**
+```json
+{
+  "api_base": "https://api.openai.com/v1",
+  "api_key": "sk-...",
+  "model": "gpt-4o-mini"
 }
 ```
 
@@ -52,19 +93,18 @@ Alternatively, you can create a local configuration file in `./config/gitai.json
 Once installed globally, navigate to any Git repository and run `gitai` with the following flags:
 
 ### 1. Preview Suggested Commit Message
-Analyzes your current changes (both staged and unstaged) and prints a suggested commit message structure to the console:
+Analyzes your current changes and prints a suggested commit message:
 ```bash
 gitai -commitmsg
 ```
 
 ### 2. Auto-Stage and Commit Changes
-Generates a commit message and automatically executes `git commit -a -m` to stage and commit your changes in one step:
+Generates a commit message and automatically commits:
 ```bash
 gitai -commit
 ```
 
 ### 3. Update to Latest Version
-Pulls the latest code from GitHub, recompiles, and replaces the global binary:
 ```bash
 gitai -update
 ```
@@ -74,4 +114,3 @@ Removes the `gitai` binary from `/usr/local/bin`:
 ```bash
 gitai -uninstall
 ```
-

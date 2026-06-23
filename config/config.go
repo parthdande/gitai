@@ -1,7 +1,8 @@
-// this file contains all the config structs for the project.
+// This file contains all the config structs for the project.
 package config
 
 type Config struct {
-	APIKey string
-	Model  string
+	APIBase string
+	APIKey  string
+	Model   string
 }

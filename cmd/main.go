@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 
 	"github.com/parthdande/gitai/client"
 	"github.com/spf13/viper"
 )
 
-const commitSystemPrompt = "You are an expert software engineer. Generate a structured conventional commit message based on the provided git diff. It must start with a short header line (conventional commit style) summarizing the overall change, followed by a blank line, then a brief paragraph describing the purpose of the changes, followed by another blank line, and a bulleted list detailing what the changes accomplished (focusing on logical and functional changes rather than listing file names). Do not include markdown formatting (like ```), just return the raw text."
+const commitSystemPrompt = "You are an expert software engineer. Generate a structured conventional commit message based on the provided git diff. It must start with a short header line (conventional commit style) summarizing the overall change, followed by a blank line, then a brief paragraph describing the purpose of the changes, focusing on the impact and user-facing behavior, followed by another blank line, and a bulleted list detailing what the changes accomplished (focusing on logical and functional changes rather than listing file names). Do not include markdown formatting (like ```), just return the raw text."
 
 func main() {
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
@@ -41,42 +43,65 @@ func main() {
 		return
 	}
 
-	// Self-update: just re-run the install script (cache-busted URL)
+	// Self-update
 	if *updateFlag {
-		cmd := exec.Command("bash", "-c", "export GITAI_UPDATE=true && curl -sSL \"https://raw.githubusercontent.com/parthdande/gitai/main/install.sh?v=$(date +%s)\" | bash")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("Update failed: %v\n", err)
-			os.Exit(1)
-		}
+		fmt.Println("Updating GitAI...")
+		fmt.Println("Please re-run the installation script to update.")
 		return
 	}
 
-	// Load config from file if it exists, otherwise fall back to environment variable
+	// Load config from ~/.gitai/gitai.json if it exists, otherwise fall back to environment variables
+	currentUser, err := user.Current()
+	if err != nil {
+		fmt.Printf("Error getting current user: %v\n", err)
+		os.Exit(1)
+	}
+	configDir := filepath.Join(currentUser.HomeDir, ".gitai")
+	configFile := filepath.Join(configDir, "gitai.json")
+
 	viper.SetConfigName("gitai")
 	viper.SetConfigType("json")
-	viper.AddConfigPath("./config")
-	err := viper.ReadInConfig()
+	viper.AddConfigPath(configDir)
+	_ = viper.ReadInConfig() // ignore error — config file is optional
 
+	// API Base: env var overrides config file
+	apiBase := viper.GetString("api_base")
+	if envBase := os.Getenv("GEMINI_API_BASE"); envBase != "" {
+		apiBase = envBase
+	}
+	if apiBase == "" {
+		apiBase = os.Getenv("API_BASE") // generic fallback
+	}
+
+	// API Key: env var overrides config file
 	apiKey := viper.GetString("api_key")
 	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
 		apiKey = envKey
 	}
+	if apiKey == "" {
+		apiKey = os.Getenv("API_KEY") // generic fallback
+	}
 
-	if err != nil && apiKey == "" {
-		fmt.Println("ERROR: No API key found. Set the GEMINI_API_KEY environment variable or create ./config/gitai.json")
+	// Model: env var overrides config file
+	model := viper.GetString("model")
+	if envModel := os.Getenv("MODEL"); envModel != "" {
+		model = envModel
+	}
+
+	if apiBase == "" {
+		fmt.Printf("ERROR: No API base URL found. Set the API_BASE environment variable, or add api_base to %s\n", configFile)
 		os.Exit(1)
 	}
 
-	model := viper.GetString("model")
 	if model == "" {
-		model = "gemini-3.1-flash-lite"
+		fmt.Printf("ERROR: No model found. Set the MODEL environment variable, or add model to %s\n", configFile)
+		os.Exit(1)
 	}
 
-	gemini := client.Gemini{
-		APIKey: apiKey,
-		Model:  model,
+	c := client.Client{
+		APIBase: apiBase,
+		APIKey:  apiKey,
+		Model:   model,
 	}
 
 	if *commitMsgFlag || *commitFlag {
@@ -93,9 +118,9 @@ func main() {
 			return
 		}
 
-		fmt.Println("Generating commit message via Gemini...")
+		fmt.Println("Generating commit message...")
 		prompt := fmt.Sprintf("Analyze this git diff and write a commit message:\n\n%s", diff)
-		commitMessage, err := gemini.GeminiAPI(prompt, commitSystemPrompt)
+		commitMessage, err := c.Generate(prompt, commitSystemPrompt)
 		if err != nil {
 			fmt.Printf("Error generating commit message: %v\n", err)
 			os.Exit(1)

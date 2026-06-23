@@ -30,6 +30,21 @@ git clone -q --depth 1 https://github.com/parthdande/gitai.git "$TEMP_BUILD_DIR"
 # Install destination
 DEST_DIR="/usr/local/bin"
 
+# Create config directory and default config file
+CONFIG_DIR="$HOME/.gitai"
+mkdir -p "$CONFIG_DIR"
+
+if [ ! -f "$CONFIG_DIR/gitai.json" ]; then
+    cat > "$CONFIG_DIR/gitai.json" << 'EOF'
+{
+  "api_base": "",
+  "api_key": "",
+  "model": ""
+}
+EOF
+    echo " Created config file at $CONFIG_DIR/gitai.json"
+fi
+
 if sudo mv "$TEMP_BUILD_DIR/gitai" "$DEST_DIR/gitai"; then
     # Clean up the temp directory
     rm -rf "$TEMP_BUILD_DIR"
@@ -41,8 +56,9 @@ if sudo mv "$TEMP_BUILD_DIR/gitai" "$DEST_DIR/gitai"; then
     fi
     echo "--------------------------------------------------------"
     if [ "$GITAI_UPDATE" != "true" ]; then
-        echo "Usage:"
-        echo "  1. Set your API Key: export GEMINI_API_KEY=\"your-key\""
+        echo "Next steps:"
+        echo "  1. Add your API key to $CONFIG_DIR/gitai.json"
+        echo "     (or set GEMINI_API_KEY environment variable)"
         echo "  2. Run 'gitai -commitmsg' or 'gitai -commit' in any Git repo"
         echo "--------------------------------------------------------"
     fi
