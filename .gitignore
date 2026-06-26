@@ -3,3 +3,5 @@ config/gitai.json
 config.env
 gitai
 .pi/
+.agent/
+.context/
