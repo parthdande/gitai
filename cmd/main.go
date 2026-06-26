@@ -17,80 +17,117 @@ import (
 )
 
 const (
-	maxCommitMsgLen = 7200 // Git's soft limit for commit message size
+	maxCommitMsgLen = 7200     // Git's soft limit for commit message size
 	gitTimeout      = 30 * time.Second
 )
 
 func main() {
-	// ── Flags ──────────────────────────────────────────────
+	// --- Read CLI flags ---
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
 	commitFlag := flag.Bool("commit", false, "Generate a commit message and automatically commit all changes")
 	reviewFlag := flag.Bool("review", false, "Review git diff for security, quality, and best practices")
 	updateFlag := flag.Bool("update", false, "Update gitai to the latest version")
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall gitai from the system")
+	thinkFlag := flag.Bool("think", false, "Enable extended thinking mode (overrides config)")
 
 	flag.Usage = func() {
-		fmt.Println("gitai — AI-assisted git commits, messages, and code reviews")
-		fmt.Println("\nUsage:")
-		fmt.Println("  gitai [flags]")
-		fmt.Println("\nFlags:")
+		fmt.Println(`gitai - AI-assisted git commits, messages, and code reviews
+
+Usage:
+  gitai [flags]
+
+Flags:`)
 		flag.PrintDefaults()
+		fmt.Println(`
+Config (~/.gitai/gitai.json):
+  {
+    "api_base": "https://...",
+    "api_key": "sk-...",
+    "commit": { "model": "...", "thinking": true },
+    "review": { "model": "...", "thinking": false }
+  }
+
+System prompts: ~/.gitai/system_prompts/<command>.md
+  (e.g. commit.md, review.md) - edit for hot-reload`)
 	}
 	flag.Parse()
 
-	// ── Special commands (no config needed) ────────────────
+	// --- Special commands (no config needed) ---
 	if *uninstallFlag {
 		uninstall()
 		return
 	}
 	if *updateFlag {
-		// TODO: implement self-update via GitHub releases or git pull + rebuild
 		fmt.Println("Updating GitAI...")
 		fmt.Println("Run: git pull && go build -o gitai cmd/main.go && sudo mv gitai /usr/local/bin/")
 		return
 	}
 
-	// ── Load config ────────────────────────────────────────
-	v := viper.New() // isolated instance — no global side effects
-	cli, err := loadClient(v)
+	// --- Load config from ~/.gitai/gitai.json ---
+	v := viper.New()
+	configDir, cli, err := loadClient(v)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
 
-	// ── Pick handler based on flag ─────────────────────────
+	// --- Figure out which task to run (commit or review) ---
+	taskName := ""
 	var handler commands.Handler
 
 	switch {
 	case *commitMsgFlag, *commitFlag:
+		taskName = "commit"
 		handler = &commands.Commit{}
 	case *reviewFlag:
+		taskName = "review"
 		handler = &commands.Review{}
 	default:
 		flag.Usage()
 		return
 	}
 
-	// ── Run the handler ────────────────────────────────────
-	result, err := runHandler(cli, handler)
+	// --- Pick the right model and thinking setting for this task ---
+	// Priority (highest to lowest):
+	//   1. --think flag (only for thinking, not model)
+	//   2. gitai.json <task>.model and <task>.thinking
+	//   3. gitai.json model (global fallback)
+	//   4. ENV vars: MODEL, API_BASE, API_KEY
+
+	model := v.GetString("model")
+	thinking := *thinkFlag // --think flag is the lowest-level thinking default
+
+	// Override with per-task config if set.
+	if taskModel := v.GetString(taskName + ".model"); taskModel != "" {
+		model = taskModel
+	}
+	if v.IsSet(taskName + ".thinking") {
+		if tv, ok := v.Get(taskName + ".thinking").(bool); ok {
+			thinking = tv
+		}
+	}
+
+	// --- Run the handler ---
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+
+	result, err := runHandler(ctx, cli, handler, model, thinking, configDir)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// ── Output ─────────────────────────────────────────────
+	// --- Print the result ---
 	fmt.Println()
 	fmt.Println("───────────────────────────────────────")
 	fmt.Println(result)
 	fmt.Println("───────────────────────────────────────")
 
-	// Auto-commit if -commit was used
+	// --- Auto-commit if --commit was used ---
 	if *commitFlag {
 		sanitized := sanitizeForGit(result)
 		fmt.Println("\nCommitting changes...")
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "git", "commit", "-a", "-m", sanitized)
+		cmd := exec.CommandContext(ctx, "git", "commit", "-m", sanitized)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -101,9 +138,9 @@ func main() {
 	}
 }
 
-// sanitizeForGit strips control characters and truncates AI output for safe use in git commit messages.
+// sanitizeForGit strips control characters and truncates AI output
+// for safe use in git commit messages.
 func sanitizeForGit(s string) string {
-	// Remove control chars except newline and carriage return
 	var b strings.Builder
 	for _, r := range s {
 		if (r >= 0x20 && r <= 0x7E) || r == '\n' || r == '\r' {
@@ -118,10 +155,11 @@ func sanitizeForGit(s string) string {
 }
 
 // loadClient reads config from ~/.gitai/gitai.json and environment variables.
-func loadClient(v *viper.Viper) (*client.Client, error) {
+// Returns the config directory path (e.g. ~/.gitai) for use by prompts/loader.
+func loadClient(v *viper.Viper) (string, *client.Client, error) {
 	currentUser, err := user.Current()
 	if err != nil {
-		return nil, fmt.Errorf("could not get current user: %w", err)
+		return "", nil, fmt.Errorf("could not get current user: %w", err)
 	}
 
 	configDir := filepath.Join(currentUser.HomeDir, ".gitai")
@@ -132,7 +170,7 @@ func loadClient(v *viper.Viper) (*client.Client, error) {
 	v.AddConfigPath(configDir)
 	_ = v.ReadInConfig() // config file is optional
 
-	// API Base
+	// API Base - env vars override config file.
 	apiBase := v.GetString("api_base")
 	if envBase := os.Getenv("GEMINI_API_BASE"); envBase != "" {
 		apiBase = envBase
@@ -141,7 +179,7 @@ func loadClient(v *viper.Viper) (*client.Client, error) {
 		apiBase = os.Getenv("API_BASE")
 	}
 
-	// API Key
+	// API Key - env vars override config file.
 	apiKey := v.GetString("api_key")
 	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
 		apiKey = envKey
@@ -150,34 +188,40 @@ func loadClient(v *viper.Viper) (*client.Client, error) {
 		apiKey = os.Getenv("API_KEY")
 	}
 
-	// Model
+	// Model - global fallback (env overrides config).
 	model := v.GetString("model")
 	if envModel := os.Getenv("MODEL"); envModel != "" {
 		model = envModel
 	}
 
 	if apiBase == "" {
-		return nil, fmt.Errorf("no API base URL found. Set the API_BASE environment variable, or add api_base to %s", configFile)
-	}
-	if model == "" {
-		return nil, fmt.Errorf("no model found. Set the MODEL environment variable, or add model to %s", configFile)
+		return "", nil, fmt.Errorf("no API base URL found. Set the API_BASE environment variable, or add api_base to %s", configFile)
 	}
 
-	return &client.Client{
+	// A top-level "model" is optional if per-task models are set.
+	// But at least one must exist.
+	hasTaskModel := v.GetString("commit.model") != "" || v.GetString("review.model") != ""
+	if model == "" && !hasTaskModel {
+		return "", nil, fmt.Errorf("no model found. Set the MODEL environment variable, add \"model\" to %s, or add \"commit.model\" / \"review.model\" blocks", configFile)
+	}
+
+	return configDir, &client.Client{
 		APIBase: apiBase,
 		APIKey:  apiKey,
-		Model:   model,
+		Model:   model, // may be empty - per-task model will override at call time
 	}, nil
 }
 
-// runHandler fetches the git diff and runs the selected handler.
-func runHandler(cli *client.Client, h commands.Handler) (string, error) {
-	fmt.Printf("Running '%s'...\n", h.Name())
+// runHandler stages all changes, fetches the git diff, and runs the selected handler.
+func runHandler(ctx context.Context, cli *client.Client, h commands.Handler, model string, thinking bool, configDir string) (string, error) {
+	fmt.Printf("Running '%s' (model=%s, thinking=%v)...\n", h.Name(), model, thinking)
 
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
+	// Stage all changes so git diff sees everything.
+	if err := exec.CommandContext(ctx, "git", "add", "-A").Run(); err != nil {
+		return "", fmt.Errorf("could not stage changes: %w", err)
+	}
 
-	cmd := exec.CommandContext(ctx, "git", "diff", "HEAD")
+	cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
 	diffBytes, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("could not fetch git diff: %w", err)
@@ -185,21 +229,20 @@ func runHandler(cli *client.Client, h commands.Handler) (string, error) {
 
 	diff := string(diffBytes)
 	if diff == "" {
-		return "", fmt.Errorf("no changes detected — working tree is clean")
+		return "", fmt.Errorf("no changes detected - working tree is clean")
 	}
 
-	return h.Run(cli, diff)
+	return h.Run(ctx, cli, diff, model, thinking, configDir)
 }
 
+// uninstall deletes the gitai binary. Requires root.
 func uninstall() {
-	// Resolve the actual binary path dynamically instead of hardcoding /usr/local/bin
 	execPath, err := os.Executable()
 	if err != nil {
 		fmt.Printf("Could not determine binary path: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Check if running as root
 	if os.Geteuid() != 0 {
 		fmt.Printf("Cannot uninstall: not running as root.\nRun: sudo %s -uninstall\n", execPath)
 		os.Exit(1)

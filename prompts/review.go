@@ -1,7 +1,8 @@
 package prompts
 
-// ReviewSystem returns the system prompt for code review (security, quality, best practices).
-func ReviewSystem() string {
+// DefaultReviewSystem returns the built-in default system prompt for code review.
+// Used as a fallback when no custom prompt file exists.
+func DefaultReviewSystem() string {
 	return `You are a senior security-focused code reviewer. Analyze the provided git diff and perform a comprehensive review covering three areas:
 
 1. SECURITY — Check for:
@@ -43,4 +44,9 @@ BEST PRACTICES:
 
 SUMMARY:
 [A one-line verdict: safe to merge / needs fixes before merging]`
+}
+
+// ReviewSystem exists for backward compatibility — aliases DefaultReviewSystem.
+func ReviewSystem() string {
+	return DefaultReviewSystem()
 }
