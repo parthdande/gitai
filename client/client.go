@@ -1,3 +1,8 @@
+// Package client provides the HTTP client for talking to OpenAI-compatible APIs.
+//
+// The Client struct holds connection settings (api_base, api_key, model) and a
+// reused HTTP client with connection pooling. Generate sends a prompt to the
+// chat completions endpoint and supports optional thinking mode with auto-fallback.
 package client
 
 import "net/http"

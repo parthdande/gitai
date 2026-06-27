@@ -1,3 +1,6 @@
+// Package config defines the typed structs for gitai configuration.
+// Config is loaded from ~/.gitai/gitai.json and supports per-task overrides
+// for model selection and thinking mode.
 package config
 
 // TaskConfig holds per-task settings (model and thinking mode).
