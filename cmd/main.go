@@ -29,12 +29,16 @@ func main() {
 	commitMsgFlag := flag.Bool("commitmsg", false, "Generate a commit message from git diff and print it")
 	commitFlag := flag.Bool("commit", false, "Generate a commit message and automatically commit all changes")
 	reviewFlag := flag.Bool("review", false, "Review git diff for security, quality, and best practices")
+	pullreqFlag := flag.Bool("pullreq", false, "Generate a PR description from branch diff")
+	prFlag := flag.Bool("pr", false, "Alias for --pullreq")
 	updateFlag := flag.Bool("update", false, "Update gitai to the latest version")
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall gitai from the system")
 	thinkFlag := flag.Bool("think", false, "Enable extended thinking mode (overrides config)")
+	branchFlag := flag.String("branch", "main", "Base branch for PR diff (also -b)")
+	_ = flag.String("b", "main", "Short alias for --branch")
 
 	flag.Usage = func() {
-		fmt.Println(`gitai - AI-assisted git commits, messages, and code reviews
+		fmt.Println(`gitai - AI-assisted git commits, messages, PRs, and code reviews
 
 Usage:
   gitai [flags]
@@ -51,7 +55,7 @@ Config (~/.gitai/gitai.json):
   }
 
 System prompts: ~/.gitai/system_prompts/<command>.md
-  (e.g. commit.md, review.md) - edit for hot-reload`)
+  (e.g. commit.md, review.md, pullreq.md) - edit for hot-reload`)
 	}
 	flag.Parse()
 
@@ -84,6 +88,9 @@ System prompts: ~/.gitai/system_prompts/<command>.md
 	case *reviewFlag:
 		taskName = "review"
 		handler = &commands.Review{}
+	case *pullreqFlag, *prFlag:
+		taskName = "pullreq"
+		handler = &commands.PullReq{}
 	default:
 		flag.Usage()
 		return
@@ -113,7 +120,7 @@ System prompts: ~/.gitai/system_prompts/<command>.md
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 
-	result, err := runHandler(ctx, cli, handler, model, thinking, configDir)
+	result, err := runHandler(ctx, cli, handler, model, thinking, configDir, *branchFlag)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -214,22 +221,37 @@ func loadClient(v *viper.Viper) (string, *client.Client, error) {
 	}, nil
 }
 
-// runHandler stages all changes, fetches the git diff, and runs the selected handler.
-func runHandler(ctx context.Context, cli *client.Client, h commands.Handler, model string, thinking bool, configDir string) (string, error) {
+// runHandler fetches the git diff and runs the selected handler.
+// For pullreq tasks, it diffs against the base branch. For all others,
+// it stages changes and diffs the staged snapshot.
+func runHandler(ctx context.Context, cli *client.Client, h commands.Handler, model string, thinking bool, configDir, baseBranch string) (string, error) {
 	fmt.Printf("Running '%s' (model=%s, thinking=%v)...\n", h.Name(), model, thinking)
 
-	// Stage all changes so git diff sees everything.
-	if err := exec.CommandContext(ctx, "git", "add", "-A").Run(); err != nil {
-		return "", fmt.Errorf("could not stage changes: %w", err)
+	var diff string
+
+	if h.Name() == "pullreq" {
+		// PR diff: all commits on this branch that are not on the base branch.
+		// Diff base against the full working tree (committed + uncommitted changes).
+		cmd := exec.CommandContext(ctx, "git", "diff", baseBranch)
+		diffBytes, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("could not fetch branch diff: %w (ensure branch '%s' exists)", err, baseBranch)
+		}
+		diff = string(diffBytes)
+	} else {
+		// Stage all changes so git diff sees everything.
+		if err := exec.CommandContext(ctx, "git", "add", "-A").Run(); err != nil {
+			return "", fmt.Errorf("could not stage changes: %w", err)
+		}
+
+		cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
+		diffBytes, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("could not fetch git diff: %w", err)
+		}
+		diff = string(diffBytes)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
-	diffBytes, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("could not fetch git diff: %w", err)
-	}
-
-	diff := string(diffBytes)
 	if diff == "" {
 		return "", fmt.Errorf("no changes detected - working tree is clean")
 	}

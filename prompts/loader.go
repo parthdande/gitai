@@ -37,6 +37,8 @@ func LoadSystemPrompt(taskName, configDir string) string {
 		return DefaultCommitSystem()
 	case "review":
 		return DefaultReviewSystem()
+	case "pullreq":
+		return DefaultPullReqSystem()
 	default:
 		// Unknown task — return empty, the caller can handle it.
 		fmt.Fprintf(os.Stderr, "WARNING: no system prompt found for task '%s', using default\n", taskName)
