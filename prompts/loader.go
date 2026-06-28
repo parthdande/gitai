@@ -1,3 +1,7 @@
+// Package prompts provides default system prompts for each gitai task and a
+// loader for custom user prompts. Users can place .md files in
+// ~/.gitai/system_prompts/ to override the built-in defaults; the loader
+// falls back to the built-in prompt if the file is missing.
 package prompts
 
 import (

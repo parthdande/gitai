@@ -1,3 +1,6 @@
+// Package commands defines the Handler interface and its implementations for each
+// gitai feature. Each handler receives a git diff, loads the appropriate system
+// prompt, and calls the AI client to generate its output (commit message, review, etc.).
 package commands
 
 import (
