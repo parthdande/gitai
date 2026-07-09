@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	maxCommitMsgLen = 7200     // Git's soft limit for commit message size
-	gitTimeout      = 30 * time.Second
+	maxCommitMsgLen = 7200      // Git's soft limit for commit message size
+	gitTimeout      = 5 * time.Minute // Long diffs + slow models need headroom
 )
 
 func main() {
