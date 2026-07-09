@@ -1,6 +1,33 @@
 # gitai
 
-AI-assisted git commits and code reviews. Analyzes your staged changes and generates conventional commit messages or code reviews using **any OpenAI-compatible API** (vLLM, Ollama, OpenAI, LiteLLM, etc.).
+AI-assisted git commits, code reviews, and pull request descriptions. Analyzes your staged changes (or branch diffs) and generates conventional commit messages, code reviews, or PR descriptions using **any OpenAI-compatible API** — vLLM, Ollama, OpenAI, LiteLLM, Groq, and more.
+
+Built in Go. Zero runtime dependencies beyond Go itself during install. Streaming-first with automatic fallback to non-streaming responses.
+
+---
+
+## Quick Start
+
+```bash
+# Install
+bash <(curl -s https://raw.githubusercontent.com/parth-nformis/gitai/main/install.sh)
+
+# Configure
+export API_BASE="http://localhost:8000/v1"
+export MODEL="Qwen/Qwen3-32B"
+
+# Generate a commit message from staged changes
+gitai -commitmsg
+
+# Generate and commit in one step
+gitai -commit
+
+# Review staged changes
+gitai -review
+
+# Generate a PR description for the current branch
+gitai -pullreq
+```
 
 ---
 
@@ -8,13 +35,11 @@ AI-assisted git commits and code reviews. Analyzes your staged changes and gener
 
 ### Automated (Linux & macOS)
 
-Run the install script to compile and place the binary in `/usr/local/bin`:
-
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/parth-nformis/gitai/main/install.sh)
 ```
 
-The script clones the latest code, builds it in a temp directory, and moves the binary to `/usr/local/bin`. Your `~/.gitai/` config is preserved on subsequent runs.
+Clones the latest code, builds in a temp directory, and installs the binary to `/usr/local/bin`. Config at `~/.gitai/` is preserved across installs.
 
 ### Manual
 
@@ -25,24 +50,21 @@ go build -o gitai cmd/main.go
 sudo mv gitai /usr/local/bin/
 ```
 
+### Update
+
+```bash
+gitai -update
+```
+
+### Uninstall
+
+```bash
+sudo gitai -uninstall
+```
+
 ---
 
 ## Configuration
-
-GitAI works with any OpenAI-compatible API endpoint.
-
-### Environment Variables
-
-```bash
-# Required: Base URL of your API server
-export API_BASE="http://localhost:8000/v1"
-
-# Optional: API key (not needed for local vLLM/Ollama)
-export API_KEY="your-key-here"
-
-# Optional: Model name (global fallback)
-export MODEL="Qwen/Qwen3-32B"
-```
 
 ### Config File
 
@@ -58,22 +80,33 @@ Created automatically at `~/.gitai/gitai.json` on first install:
 
 ### Per-task Model and Thinking Mode
 
-Use different models for commit messages vs code reviews:
+Assign different models and thinking settings per command:
 
 ```json
 {
   "api_base": "https://api.openai.com/v1",
   "api_key": "sk-...",
   "commit": { "model": "gpt-4o-mini", "thinking": false },
-  "review": { "model": "gpt-4o", "thinking": true }
+  "review": { "model": "gpt-4o", "thinking": true },
+  "pullreq": { "model": "gpt-4o", "thinking": false }
 }
 ```
 
+### Environment Variables
+
+| Variable | Config Key | Description |
+|----------|-----------|-------------|
+| `API_BASE` | `api_base` | Base URL of your API server (required) |
+| `API_KEY` | `api_key` | API key (optional for local servers) |
+| `MODEL` | `model` | Global fallback model name |
+| `GEMINI_API_BASE` | — | Alternative for `API_BASE` |
+| `GEMINI_API_KEY` | — | Alternative for `API_KEY` |
+
 Priority (highest to lowest):
-1. `--think` CLI flag (thinking only)
-2. Per-task config (`commit.model`, `commit.thinking`, `review.model`, `review.thinking`)
-3. Global config (`model` key)
-4. Environment variables (`MODEL`, `API_BASE`, `API_KEY`)
+
+1. Per-task config (`commit.model`, `review.model`, `pullreq.model`)
+2. Global config (`model` key)
+3. Environment variables
 
 ### Example Configurations
 
@@ -106,11 +139,9 @@ Priority (highest to lowest):
 
 ## Usage
 
-Navigate to any Git repository and run `gitai` with the following flags:
-
 ### Generate Commit Message
 
-Prints a suggested commit message from your staged changes:
+Analyzes staged changes and prints a conventional commit message:
 
 ```bash
 gitai -commitmsg
@@ -118,7 +149,7 @@ gitai -commitmsg
 
 ### Auto-commit
 
-Generates a commit message and commits all staged changes:
+Stages all changes, generates a commit message, and commits:
 
 ```bash
 gitai -commit
@@ -132,16 +163,27 @@ Reviews staged changes for security, quality, and best practices:
 gitai -review
 ```
 
+### Pull Request Description
+
+Generates a structured PR description from the diff between the current branch and `main`:
+
+```bash
+gitai -pullreq          # or: gitai -pr
+gitai -pullreq -branch develop   # custom base branch
+```
+
+Output includes: summary, changes, testing steps, and breaking changes.
+
 ### Thinking Mode
 
-Enable extended thinking for models that support it (e.g. DeepSeek). Falls back automatically if the model doesn't support it:
+Enable extended reasoning for models that support it (e.g. DeepSeek). Falls back automatically if the model doesn't support thinking:
 
 ```bash
 gitai -commit -think
 gitai -review -think
 ```
 
-Or enable permanently in `~/.gitai/gitai.json`:
+Or enable permanently in config per-task:
 
 ```json
 {
@@ -152,31 +194,16 @@ Or enable permanently in `~/.gitai/gitai.json`:
 
 ### Custom System Prompts
 
-Override the built-in prompts by placing `.md` files in `~/.gitai/system_prompts/`:
+Override built-in prompts by placing `.md` files in `~/.gitai/system_prompts/`:
 
 ```
 ~/.gitai/system_prompts/
-├── commit.md   # Overrides commit message generation prompt
-└── review.md   # Overrides code review prompt
+├── commit.md    # Commit message generation
+├── review.md    # Code review
+└── pullreq.md   # PR description
 ```
 
-Edit the files and the next `gitai` run picks them up — no rebuild needed. If a file is missing, gitai falls back to its built-in default.
-
-### Update to Latest Version
-
-```bash
-gitai -update
-```
-
-Downloads and runs the install script to replace the binary. Config at `~/.gitai/` is preserved.
-
-### Uninstall
-
-Removes the `gitai` binary (requires sudo):
-
-```bash
-sudo gitai -uninstall
-```
+Changes take effect immediately — no rebuild needed. Missing files fall back to built-in defaults.
 
 ---
 
@@ -184,22 +211,37 @@ sudo gitai -uninstall
 
 ```
 gitai/
-├── cmd/main.go          # CLI flags, config loading, update/uninstall handlers
-├── client/              # HTTP client for OpenAI-compatible APIs
-│   ├── client.go        # Client struct (api_base, api_key, model, http client)
-│   └── api_call.go      # API call logic, thinking mode, auto-fallback
-├── commands/            # Feature handlers (commit, review)
-│   ├── handler.go       # Handler interface (Name + Run)
-│   ├── commit.go        # Commit message generation
-│   └── review.go        # Code review generation
-├── config/              # Typed config structs
-│   └── config.go        # Config and TaskConfig types
-├── prompts/             # System prompts
-│   ├── loader.go        # Loads custom prompts from disk, falls back to defaults
-│   ├── commit.go        # Default commit system prompt
-│   └── review.go        # Default review system prompt
-└── install.sh           # Automated install: clone, build, install to /usr/local/bin
+├── cmd/main.go              # CLI entry point, flag parsing, config loading
+├── client/                  # OpenAI-compatible HTTP client
+│   ├── client.go            # Client struct (api_base, api_key, model)
+│   └── api_call.go          # Streaming + non-streaming API calls, thinking mode, auto-fallback
+├── commands/                # Feature handlers
+│   ├── handler.go           # Handler interface (Name + Run)
+│   ├── commit.go            # Commit message generation
+│   ├── review.go            # Code review generation
+│   └── pullreq.go           # PR description generation
+├── config/                  # Typed configuration
+│   └── config.go            # Config and TaskConfig types
+├── diffprep/                # Diff preprocessing pipeline
+│   └── preprocess.go        # Noise filtering, file stats, truncation, chunking
+├── prompts/                 # System prompt management
+│   ├── loader.go            # Custom prompt loader with built-in fallback
+│   ├── commit.go            # Default commit prompt
+│   ├── review.go            # Default review prompt
+│   └── pullreq.go           # Default PR description prompt
+└── install.sh               # Automated install script
 ```
+
+### Key Features
+
+- **Streaming-first**: Uses SSE streaming with automatic fallback to non-streaming for APIs that don't support it
+- **Thinking mode**: Supports extended reasoning via `chat_template_kwargs`, with auto-fallback on failure
+- **Diff preprocessing**: Filters noise files (lock files, binaries, generated code), truncates oversized diffs, computes per-file stats
+- **Hierarchical chunking**: Splits large diffs into manageable chunks for models with context limits
+- **Per-task configuration**: Different models and settings per command (commit, review, pullreq)
+- **Hot-reload prompts**: Custom prompts picked up without rebuild
+
+---
 
 ## License
 
