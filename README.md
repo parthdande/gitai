@@ -208,6 +208,7 @@ Changes take effect immediately — no rebuild needed. Missing files fall back t
 ---
 
 ## Architecture
+<img width="1093" height="1147" alt="diagram-export-09-07-2026-13_39_08" src="https://github.com/user-attachments/assets/3a0fd138-6906-464e-aafa-395fe4dbd5d3" />
 
 ```
 gitai/
